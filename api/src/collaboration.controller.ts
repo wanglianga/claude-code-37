@@ -1,6 +1,6 @@
 import {
   Body, Controller, Get, Param, Post, Query, Req, UseGuards,
-  BadRequestException, NotFoundException,
+  BadRequestException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
 import { Between } from 'typeorm';
 import { DbService } from './db.service';
@@ -48,23 +48,41 @@ export class CollaborationController {
   }) {
     if (!INCIDENT_TYPES.includes(body.type)) throw new BadRequestException('事件类型不合法');
     if (!body.title) throw new BadRequestException('请填写事件标题');
+
     let studentId = body.studentId ? Number(body.studentId) : undefined;
-    if (body.reservationId) {
-      const r = await this.db.reservations.findOneBy({ id: Number(body.reservationId) });
-      if (r) { studentId = r.studentId; }
+    let reservationId = body.reservationId ? Number(body.reservationId) : undefined;
+
+    // ---- 归属校验必须在任何写库之前完成，校验失败一律不落库 ----
+    if (reservationId) {
+      const r = await this.db.reservations.findOneBy({ id: reservationId });
+      if (!r) throw new NotFoundException('预约不存在');
+      if (req.user.role === 'parent' && r.parentId !== req.user.sub) {
+        throw new ForbiddenException('只能为自己的预约发起协同事件');
+      }
+      studentId = r.studentId;
     }
-    const inc = await this.db.incidents.save(this.db.incidents.create({
-      type: body.type, title: body.title, description: body.description || '',
-      date: body.date || DbService.todayStr(),
-      reservationId: body.reservationId ? Number(body.reservationId) : undefined,
-      studentId,
-      openedByName: req.user.name,
-      status: 'open',
-    }));
-    await this.db.incidentMessages.save(this.db.incidentMessages.create({
-      incidentId: inc.id, authorName: req.user.name, authorRole: req.user.role,
-      content: `发起事件：${body.title}`,
-    }));
+    if (req.user.role === 'parent' && studentId) {
+      const owns = await this.db.students.findOne({
+        where: { id: studentId, parentId: req.user.sub },
+      });
+      if (!owns) throw new ForbiddenException('只能为自己的孩子发起协同事件');
+    }
+
+    // 事件 + 首条消息同一事务落库，避免状态与持久化不一致
+    const inc = await this.db.ds.transaction(async manager => {
+      const saved = await manager.save(this.db.incidents.create({
+        type: body.type, title: body.title, description: body.description || '',
+        date: body.date || DbService.todayStr(),
+        reservationId, studentId,
+        openedByName: req.user.name,
+        status: 'open',
+      }));
+      await manager.save(this.db.incidentMessages.create({
+        incidentId: saved.id, authorName: req.user.name, authorRole: req.user.role,
+        content: `发起事件：${body.title}`,
+      }));
+      return saved;
+    });
     // 高风险事件自动给当事学生累计异常分
     if (studentId && ['night_unpicked', 'conflict', 'device_lost', 'late_return'].includes(body.type)) {
       await this.db.addAbnormal(studentId, body.type === 'night_unpicked' ? 3 : 2);

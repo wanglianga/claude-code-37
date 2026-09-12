@@ -34,6 +34,10 @@ export class Student {
   /** 长期异常 → 进入重点关注名单，后续预约需家长重新确认 */
   @Column({ default: false }) watchlisted: boolean;
   @Column({ type: 'int', default: 0 }) abnormalScore: number; // 累计异常分
+  /** 晚间无人接历史累计次数（离场风险记录） */
+  @Column({ type: 'int', default: 0 }) pickupRiskCount: number;
+  /** 被社区限制独自离场（历史无人接处置后触发，后续 solo 预约需解除） */
+  @Column({ default: false }) soloPickupRestricted: boolean;
   @CreateDateColumn() createdAt: Date;
 }
 
@@ -224,5 +228,95 @@ export class Patrol {
   @Column({ name: 'room_id', nullable: true }) roomId?: number;
   @ManyToOne(() => Room, { nullable: true }) @JoinColumn({ name: 'room_id' }) room?: Room;
   @Column() recorderName: string;
+  @CreateDateColumn() createdAt: Date;
+}
+
+// ---------- 晚间无人接处置 ----------
+export type PickupStatus =
+  | 'waiting'      // 继续等待家长
+  | 'escorted'     // 志愿者陪同到门口
+  | 'temp_care'    // 转入临时看护
+  | 'escalated'    // 已升级网格员
+  | 'resolved';    // 已接走并锁定
+
+export type PickupActionType =
+  | 'open'              // 开单
+  | 'contact_attempt'   // 联系家长（未接通/已联系）
+  | 'parent_reply'      // 家长回复
+  | 'wait'              // 值班人员决定继续留守
+  | 'escort'            // 陪同到门口
+  | 'temp_care'         // 转入临时看护
+  | 'escalate'          // 升级网格员
+  | 'resolve';          // 接走并锁定
+
+@Entity('pickup_cases')
+export class PickupCase {
+  @PrimaryGeneratedColumn() id: number;
+
+  @Column({ name: 'reservation_id' }) reservationId: number;
+  @ManyToOne(() => Reservation, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'reservation_id' }) reservation: Reservation;
+
+  @Column({ name: 'student_id' }) studentId: number;
+  @ManyToOne(() => Student) @JoinColumn({ name: 'student_id' }) student: Student;
+
+  @Column({ type: 'date' }) date: string;
+  @Column({ type: 'varchar', length: 16, default: 'waiting' }) status: PickupStatus;
+
+  @Column({ type: 'timestamptz' }) openedAt: Date;
+  @Column({ type: 'timestamptz', nullable: true }) resolvedAt?: Date;
+
+  /** 授权离场方式 / 年级快照（决策依据） */
+  @Column({ type: 'varchar', length: 16, default: 'pickup' }) authorizedLeaveMode: string;
+  @Column({ type: 'int', default: 0 }) gradeSnapshot: number;
+
+  /** 联系过程 */
+  @Column({ type: 'int', default: 0 }) contactAttempts: number;
+  @Column({ type: 'int', default: 0 }) contactReached: number;
+  @Column({ default: '' }) lastParentReply: string;
+  @Column({ type: 'timestamptz', nullable: true }) lastParentReplyAt?: Date;
+
+  /** 值班/值守 */
+  @Column({ default: '' }) dutyStaffName: string;
+  @Column({ default: '' }) escortName: string;
+  @Column({ default: '' }) tempCareLocation: string;
+  @Column({ default: '' }) gridWorkerName: string;
+  @Column({ type: 'timestamptz', nullable: true }) escalatedAt?: Date;
+
+  /** 最终接走人（临时接送人）登记 */
+  @Column({ default: '' }) pickupPersonName: string;
+  @Column({ default: '' }) pickupPersonRelation: string;
+  @Column({ default: '' }) pickupPersonPhone: string;
+  @Column({ default: '' }) pickupPersonIdCard: string;  // 证件核验记录
+  @Column({ default: false }) parentConfirmedPickup: boolean;
+
+  /** 锁定的现场快照：迟到情况 / 临时接送人 / 当日巡查班次 / 预约 */
+  @Column({ type: 'jsonb', nullable: true }) lockedSnapshot?: any;
+
+  /** 处置结论对该家庭后续预约规则的影响 */
+  @Column({ type: 'int', default: 0 }) riskAdded: number;
+  @Column({ default: false }) soloRestrictedAfter: boolean;
+  @Column({ default: '' }) resolution: string;
+
+  @OneToMany(() => PickupAction, a => a.pickupCase, { cascade: true })
+  actions: PickupAction[];
+
+  @CreateDateColumn() createdAt: Date;
+  @UpdateDateColumn() updatedAt: Date;
+}
+
+@Entity('pickup_actions')
+export class PickupAction {
+  @PrimaryGeneratedColumn() id: number;
+
+  @Column({ name: 'pickup_case_id' }) pickupCaseId: number;
+  @ManyToOne(() => PickupCase, c => c.actions, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'pickup_case_id' }) pickupCase: PickupCase;
+
+  @Column({ type: 'varchar', length: 24 }) type: PickupActionType;
+  @Column({ default: '' }) detail: string;
+  @Column() actorName: string;
+  @Column({ type: 'varchar', length: 16 }) actorRole: string;
+  @Column({ type: 'timestamptz' }) time: Date;
   @CreateDateColumn() createdAt: Date;
 }

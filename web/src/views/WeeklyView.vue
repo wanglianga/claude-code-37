@@ -6,10 +6,11 @@
         <el-date-picker v-model="endDate" type="date" value-format="YYYY-MM-DD" size="small" @change="load" />
       </div>
       <el-row :gutter="14" style="margin-top:16px">
-        <el-col :span="5"><el-card shadow="never"><el-statistic title="周均座位使用率" :value="report.totals.avgUtilization" suffix="%" /></el-card></el-col>
-        <el-col :span="5"><el-card shadow="never"><el-statistic title="周预约总数" :value="report.totals.reservations" /></el-card></el-col>
-        <el-col :span="5"><el-card shadow="never"><el-statistic title="协同事件总数" :value="report.totals.incidents" /></el-card></el-col>
-        <el-col :span="5"><el-card shadow="never"><el-statistic title="家长响应率" :value="report.totals.parentResponseRate" suffix="%" /></el-card></el-col>
+        <el-col :span="4"><el-card shadow="never"><el-statistic title="周均座位使用率" :value="report.totals.avgUtilization" suffix="%" /></el-card></el-col>
+        <el-col :span="4"><el-card shadow="never"><el-statistic title="周预约总数" :value="report.totals.reservations" /></el-card></el-col>
+        <el-col :span="4"><el-card shadow="never"><el-statistic title="协同事件总数" :value="report.totals.incidents" /></el-card></el-col>
+        <el-col :span="4"><el-card shadow="never"><el-statistic title="无人接处置" :value="report.totals.pickupCases" /></el-card></el-col>
+        <el-col :span="4"><el-card shadow="never"><el-statistic title="家长响应率" :value="report.totals.parentResponseRate" suffix="%" /></el-card></el-col>
         <el-col :span="4"><el-card shadow="never"><el-statistic title="巡查次数" :value="report.totals.patrols" /></el-card></el-col>
       </el-row>
     </el-card>
@@ -28,6 +29,11 @@
             <el-table-column prop="checkedIn" label="入场" width="60" />
             <el-table-column prop="noShow" label="未到" width="60" />
             <el-table-column prop="incidents" label="事件" width="60" />
+            <el-table-column prop="pickupCases" label="无人接" width="70">
+              <template #default="{row}">
+                <el-tag size="small" :type="row.pickupCases?'danger':'info'">{{ row.pickupCases }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="家长响应" width="90">
               <template #default="{row}">{{ row.parentResponseRate }}%</template>
             </el-table-column>

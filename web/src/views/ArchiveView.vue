@@ -6,8 +6,7 @@
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" size="small" @change="load" />
       </div>
       <el-row :gutter="12" style="margin-top:14px">
-        <el-col :span="3" v-for="c in cards" :key="c.label">
-          <el-statistic :title="c.label" :value="c.value" />
+        <el-col :span="3" v-for="c in cards" :key="c.label">          <el-statistic :title="c.label" :value="c.value" />
         </el-col>
       </el-row>
     </el-card>
@@ -74,6 +73,27 @@
             </el-timeline-item>
           </el-timeline>
         </el-tab-pane>
+        <el-tab-pane :label="`晚间无人接处置（${data.pickupCases?.length||0}）`" name="pickup">
+          <el-table :data="data.pickupCases" size="small" border>
+            <el-table-column prop="studentName" label="学生" width="90" />
+            <el-table-column label="状态" width="120">
+              <template #default="{row}"><el-tag size="small">{{ PICKUP_STATUS[row.status] }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="联系/接通" width="100">
+              <template #default="{row}">{{ row.contactAttempts }} / {{ row.contactReached }}</template>
+            </el-table-column>
+            <el-table-column prop="dutyStaffName" label="值守人" width="100" />
+            <el-table-column prop="gridWorkerName" label="网格员" width="100" />
+            <el-table-column label="接走人" min-width="160">
+              <template #default="{row}">
+                <template v-if="row.pickupPersonName">{{ row.pickupPersonName }}（{{ row.pickupPersonRelation }}）</template>
+                <span v-else class="muted">—</span>
+                <el-tag v-if="row.soloRestrictedAfter" size="small" type="danger" style="margin-left:6px">限独自</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="resolution" label="处置结论" min-width="180" />
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -97,10 +117,15 @@ const cards = computed(() => {
     { label: '待重新确认', value: s.pending ?? 0 },
     { label: '家长已确认', value: s.parentConfirmed ?? 0 },
     { label: '处理中事件', value: s.incidentsOpen ?? 0 },
+    { label: '无人接处置', value: s.pickupCases ?? 0 },
+    { label: '限制独自家庭', value: s.pickupRestrictedFamilies ?? 0 },
     { label: '巡查次数', value: s.patrols ?? 0 },
   ];
 });
 function fmt(t: string) { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '—'; }
+const PICKUP_STATUS: Record<string, string> = {
+  waiting: '留守等待中', escorted: '陪同到门口', temp_care: '临时看护中', escalated: '已升级网格员', resolved: '已接走锁定',
+};
 async function load() { data.value = await api.get('/daily-archive', { params: { date: date.value } }); }
 onMounted(load);
 </script>

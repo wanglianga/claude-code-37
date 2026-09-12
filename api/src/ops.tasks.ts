@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { In } from 'typeorm';
 import { DbService } from './db.service';
+import { PickupAction } from './entities';
 
 function toMin(hhmm: string) { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
 
@@ -69,6 +70,24 @@ export class OpsTasks {
             incidentId: inc.id, authorName: '系统', authorRole: 'security',
             content: '已自动升级：请安保与社区工作人员联动看护，不得让学生独自离场。',
           }));
+          // 自动开晚间无人接处置单并锁定现场快照
+          const hasCase = await this.db.pickupCases.findOne({
+            where: { reservationId: r.id, status: In(['waiting', 'escorted', 'temp_care', 'escalated']) },
+          });
+          if (!hasCase) {
+            const snapshot = await this.db.buildPickupSnapshot(r.id, r.studentId, inc.id);
+            const pc = await this.db.pickupCases.save(this.db.pickupCases.create({
+              reservationId: r.id, studentId: r.studentId, date: day,
+              status: 'waiting', openedAt: DbService.nowShanghai(),
+              authorizedLeaveMode: r.leaveMode, gradeSnapshot: r.student?.grade || 0,
+              lockedSnapshot: snapshot,
+            }));
+            await this.db.pickupActions.save(this.db.pickupActions.create({
+              pickupCaseId: pc.id, type: 'open', actorName: '系统', actorRole: 'staff',
+              time: DbService.nowShanghai(),
+              detail: `系统自动开单：超过计划离场时间 ${r.plannedLeave} 30 分钟家长未到，现场已锁定。`,
+            } as Partial<PickupAction>));
+          }
         }
       }
     }

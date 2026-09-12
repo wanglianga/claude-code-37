@@ -8,6 +8,7 @@ const routes = [
   { path: '/desk', component: () => import('./views/DeskView.vue'), meta: { roles: ['staff', 'volunteer', 'admin', 'security'] } },
   { path: '/seats', component: () => import('./views/SeatsView.vue'), meta: { roles: ['staff', 'volunteer', 'admin'] } },
   { path: '/incidents', component: () => import('./views/IncidentsView.vue') },
+  { path: '/pickup', component: () => import('./views/PickupView.vue') },
   { path: '/patrols', component: () => import('./views/PatrolView.vue'), meta: { roles: ['security', 'staff', 'admin'] } },
   { path: '/timeline', component: () => import('./views/TimelineView.vue') },
   { path: '/archive', component: () => import('./views/ArchiveView.vue'), meta: { roles: ['staff', 'admin', 'volunteer', 'security'] } },

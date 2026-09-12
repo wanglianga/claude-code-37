@@ -36,6 +36,7 @@
           <template #default="{row}">
             <div><b>{{ row.student?.name }}</b>
               <el-tag v-if="row.student?.watchlisted" type="danger" size="small" effect="dark" style="margin-left:4px">关注</el-tag>
+              <el-tag v-if="row.student?.soloPickupRestricted" type="danger" size="small" effect="plain" style="margin-left:4px">限独自离场</el-tag>
             </div>
             <div class="muted">{{ row.student?.grade }} 年级 · {{ row.student?.school }}</div>
           </template>
@@ -81,6 +82,7 @@
             </el-button>
             <el-button v-if="row.status==='checked_in'" size="small" @click="openRecord(row)">自习记录</el-button>
             <el-button v-if="row.status==='checked_in'" type="warning" size="small" @click="openCheckout(row)">离场</el-button>
+            <el-button v-if="row.status==='checked_in'" type="danger" plain size="small" @click="openPickup(row)">晚间无人接</el-button>
             <el-button size="small" @click="openIncident(row)">协同事件</el-button>
           </template>
         </el-table-column>
@@ -296,6 +298,17 @@ async function doOpenIncident() {
   inc.visible = false;
   load();
 }
+
+// ---------- 晚间无人接处置 ----------
+async function openPickup(row: any) {
+  await ElMessageBox.confirm(
+    `确认为「${row.student.name}」开启晚间无人接处置单？将锁定现场快照（迟到/当日巡查班次/预约），可继续联系家长、留守、临时看护或升级网格员。`,
+    '晚间无人接开单', { type: 'warning', confirmButtonText: '开单并前往处置' });
+  const c: any = await api.post('/pickup-cases', { reservationId: row.id });
+  ElMessage.success(`处置单 #${c.id} 已开单，现场快照已锁定`);
+  location.hash = '#/pickup';
+}
+
 </script>
 
 <style scoped>

@@ -30,6 +30,11 @@ export class ReservationController {
     const plannedLeave: string = body.plannedLeave; // HH:mm
     const leaveMode = body.leaveMode === 'solo' ? 'solo' : 'pickup';
     if (!arrivalSlot || !plannedLeave) throw new BadRequestException('请填写到场时段与计划离场时间');
+    if (leaveMode === 'solo' && student.soloPickupRestricted) {
+      throw new BadRequestException(
+        `该家庭已有 ${student.pickupRiskCount} 次晚间无人接处置记录，学生独自离场权限已被社区限制，请选择家长接，或联系社区工作人员解除限制`,
+      );
+    }
     const slotStart = toMin(arrivalSlot.split('-')[0]);
     const slotEnd = toMin(arrivalSlot.split('-')[1] || arrivalSlot.split('-')[0]);
 
@@ -128,6 +133,7 @@ export class ReservationController {
         allergies: r.student.allergies, careNeeds: r.student.careNeeds,
         emergencyContact: r.student.emergencyContact, emergencyPhone: r.student.emergencyPhone,
         watchlisted: r.student.watchlisted,
+        pickupRiskCount: r.student.pickupRiskCount, soloPickupRestricted: r.student.soloPickupRestricted,
       },
     }));
   }
@@ -150,6 +156,7 @@ export class ReservationController {
         allergies: student.allergies, careNeeds: student.careNeeds, watchlisted: student.watchlisted,
         emergencyContact: student.emergencyContact, emergencyPhone: student.emergencyPhone,
         abnormalScore: student.abnormalScore,
+        pickupRiskCount: student.pickupRiskCount, soloPickupRestricted: student.soloPickupRestricted,
       },
       seat: seat ? { id: seat.id, code: seat.code, zone: seat.zone, monitored: seat.monitored } : null,
       roomName: room?.name || null,

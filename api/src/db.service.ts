@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-  StudyEvent, Incident, IncidentMessage, Patrol,
+  StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
 } from './entities';
 
 @Injectable()
@@ -35,6 +35,8 @@ export class DbService {
   get incidents() { return this.ds.getRepository(Incident); }
   get incidentMessages() { return this.ds.getRepository(IncidentMessage); }
   get patrols() { return this.ds.getRepository(Patrol); }
+  get pickupCases() { return this.ds.getRepository(PickupCase); }
+  get pickupActions() { return this.ds.getRepository(PickupAction); }
 
   /** 累计异常分，达到阈值进入重点关注名单 */
   async addAbnormal(studentId: number, points: number) {
@@ -47,6 +49,63 @@ export class DbService {
 
   /** 低龄阈值：1-3 年级 */
   static isJunior(grade: number) { return grade <= 3; }
+
+  /** 现场快照：预约、学生、迟到、当日巡查班次、志愿者排班、紧急联系、协同事件 */
+  async buildPickupSnapshot(reservationId: number, studentId: number, incidentId?: number | null) {
+    const r = await this.reservations.findOne({
+      where: { id: reservationId }, relations: ['student', 'seat'],
+    });
+    const lateEvents = await this.studyEvents.find({
+      where: { reservationId, type: In(['late', 'temp_out']) },
+    });
+    const day = r!.date;
+    const start = new Date(`${day}T00:00:00+08:00`);
+    const end = new Date(`${day}T23:59:59+08:00`);
+    const patrolRows = await this.patrols.createQueryBuilder('p')
+      .where('p.time BETWEEN :s AND :e', { s: start, e: end })
+      .orderBy('p.time', 'ASC').getMany();
+    const groups: Record<string, any> = {};
+    for (const p of patrolRows) {
+      groups[p.recorderName] ||= { recorderName: p.recorderName, count: 0, areas: new Set<string>(), from: p.time, to: p.time };
+      const g = groups[p.recorderName];
+      g.count += 1; g.areas.add(p.area); g.to = p.time;
+    }
+    const shifts = await this.shifts.find({ where: { date: day }, relations: ['volunteer'] });
+    // 未显式传入 incidentId 时，按预约关联查询「晚间无人接」事件
+    let incId: number | null | undefined = incidentId;
+    if (incId === undefined) {
+      const incident = await this.incidents.findOne({ where: { reservationId, type: 'night_unpicked' } });
+      incId = incident?.id || null;
+    }
+    return {
+      lockedAt: DbService.nowShanghai(),
+      reservation: r && {
+        id: r.id, date: r.date, arrivalSlot: r.arrivalSlot, plannedLeave: r.plannedLeave,
+        leaveMode: r.leaveMode, seat: r.seat ? r.seat.code : null,
+        emergencyContact: r.emergencyContact, emergencyPhone: r.emergencyPhone,
+        allergies: r.allergies, careNote: r.careNote,
+      },
+      student: r?.student && { id: r.student.id, name: r.student.name, grade: r.student.grade },
+      late: lateEvents.map(e => ({ type: e.type, detail: e.detail, at: e.occurredAt, by: e.recorderName })),
+      patrolShifts: Object.values(groups).map((g: any) => ({
+        recorderName: g.recorderName, count: g.count, areas: [...g.areas], from: g.from, to: g.to,
+      })),
+      volunteerShifts: shifts.map(s => ({
+        volunteerName: s.volunteer?.name, startTime: s.startTime, endTime: s.endTime, careCapacity: s.careCapacity,
+      })),
+      incidentId: incId,
+    };
+  }
+
+  /** 离场处置结案：累计该家庭（学生）离场风险，并按规则限制后续独自离场 */
+  async applyPickupRisk(studentId: number, opts: { restrictSolo?: boolean }) {
+    const s = await this.students.findOneBy({ id: studentId });
+    if (!s) return s;
+    s.pickupRiskCount += 1;
+    if (opts.restrictSolo) s.soloPickupRestricted = true;
+    await this.students.save(s);
+    return s;
+  }
 
   /**
    * 座位分配：低龄→低龄陪护区；申请安静→安静区；其余优先临窗区；

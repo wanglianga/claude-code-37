@@ -23,6 +23,23 @@
       </el-card>
     </el-col>
     <el-col :span="11">
+      <el-card style="margin-bottom:14px">
+        <div class="card-title">🚫 独自离场受限家庭</div>
+        <el-alert type="error" :closable="false" style="margin-bottom:10px"
+          title="因晚间无人接处置被限制的学生，家长端提交“独自离场”预约将被拦截；社区核实后可解除。" />
+        <el-table :data="restricted" size="small" empty-text="暂无受限家庭">
+          <el-table-column prop="name" label="姓名" width="90" />
+          <el-table-column prop="grade" label="年级" width="60" />
+          <el-table-column label="无人接次数" width="100">
+            <template #default="{row}">{{ row.pickupRiskCount }}</template>
+          </el-table-column>
+          <el-table-column label="操作">
+            <template #default="{row}">
+              <el-button size="small" type="success" @click="clearRestrict(row)">解除独自离场限制</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
       <el-card>
         <div class="card-title">手动纳入关注（社区负责人/工作人员）</div>
         <el-select v-model="studentId" filterable placeholder="选择学生" style="width:100%;margin-bottom:10px">
@@ -38,18 +55,25 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
 const rows = ref<any[]>([]);
 const students = ref<any[]>([]);
 const studentId = ref<number | null>(null);
+const restricted = computed(() => students.value.filter(s => s.soloPickupRestricted));
 
 async function load() {
   rows.value = await api.get('/watchlist');
   const meta = await api.get('/meta');
   students.value = meta.students;
+}
+async function clearRestrict(row: any) {
+  await ElMessageBox.confirm(`确定解除 ${row.name} 家庭的独自离场限制？（历史无人接次数保留）`, '提示', { type: 'warning' });
+  await api.post(`/students/${row.id}/clear-pickup-restriction`);
+  ElMessage.success('已解除，家长可重新提交独自离场预约');
+  load();
 }
 async function add() {
   await api.post(`/students/${studentId.value}/watchlist`, { watchlisted: true });

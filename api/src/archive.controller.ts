@@ -6,6 +6,12 @@ const ZONE_LABEL: Record<string, string> = {
   junior: '低龄陪护区', quiet: '安静区', window: '临窗区', general: '普通区',
 };
 
+const PICKUP_ACTION_LABEL: Record<string, string> = {
+  open: '开单', contact_attempt: '联系家长', parent_reply: '家长回复',
+  wait: '继续留守', escort: '陪同到门口', temp_care: '临时看护',
+  escalate: '升级网格员', resolve: '接走锁定',
+};
+
 @Controller()
 @UseGuards(AuthGuard)
 export class ArchiveController {
@@ -25,6 +31,9 @@ export class ArchiveController {
     const patrolRows = await this.db.patrols.createQueryBuilder('p')
       .where('p.time BETWEEN :s AND :e', { s: start, e: end })
       .orderBy('p.time', 'ASC').getMany();
+    const pickupCases = await this.db.pickupCases.find({
+      where: { date: day }, relations: ['student'], order: { openedAt: 'ASC' },
+    });
 
     const checkedIn = reservations.filter(r => ['checked_in', 'checked_out'].includes(r.status));
     return {
@@ -40,6 +49,8 @@ export class ArchiveController {
         incidentsOpen: incidents.filter(i => i.status !== 'resolved').length,
         incidentsResolved: incidents.filter(i => i.status === 'resolved').length,
         patrols: patrolRows.length,
+        pickupCases: pickupCases.length,
+        pickupRestrictedFamilies: pickupCases.filter(c => c.soloRestrictedAfter).length,
       },
       records: reservations.map(r => ({
         reservationId: r.id,
@@ -58,6 +69,18 @@ export class ArchiveController {
       })),
       patrols: patrolRows.map(p => ({
         id: p.id, time: p.time, area: p.area, finding: p.finding, normal: p.normal, recorderName: p.recorderName,
+      })),
+      pickupCases: pickupCases.map(c => ({
+        id: c.id, studentName: c.student?.name, grade: c.gradeSnapshot,
+        status: c.status, openedAt: c.openedAt, resolvedAt: c.resolvedAt,
+        authorizedLeaveMode: c.authorizedLeaveMode,
+        contactAttempts: c.contactAttempts, contactReached: c.contactReached,
+        lastParentReply: c.lastParentReply, dutyStaffName: c.dutyStaffName,
+        escortName: c.escortName, tempCareLocation: c.tempCareLocation,
+        gridWorkerName: c.gridWorkerName,
+        pickupPersonName: c.pickupPersonName, pickupPersonRelation: c.pickupPersonRelation,
+        parentConfirmedPickup: c.parentConfirmedPickup,
+        soloRestrictedAfter: c.soloRestrictedAfter, resolution: c.resolution,
       })),
     };
   }
@@ -88,6 +111,11 @@ export class ArchiveController {
     const end = new Date(`${day}T23:59:59+08:00`);
     const dayPatrols = await this.db.patrols.createQueryBuilder('p')
       .where('p.time BETWEEN :s AND :e', { s: start, e: end }).orderBy('p.time', 'ASC').getMany();
+    const pickupCases = await this.db.pickupCases.createQueryBuilder('c')
+      .leftJoinAndSelect('c.student', 'student')
+      .where('c.date = :day', { day }).orderBy('c.openedAt', 'ASC').getMany();
+    const pickupActions = await this.db.pickupActions.createQueryBuilder('a')
+      .where('a.time BETWEEN :s AND :e', { s: start, e: end }).orderBy('a.time', 'ASC').getMany();
 
     const EVENT_LABEL: Record<string, string> = {
       late: '迟到', leave_seat: '离座', charger: '借用充电器', temp_out: '临时外出',
@@ -125,6 +153,16 @@ export class ArchiveController {
             text: `协同事件【${inc.title}】状态：${inc.status}${inc.escalated ? '（已升级）' : ''}`,
             incidentId: inc.id });
         }
+        // 晚间无人接处置过程进入看护时间线
+        const rCases = pickupCases.filter(c => c.reservationId === r.id);
+        for (const c of rCases) {
+          const acts = pickupActions.filter(a => a.pickupCaseId === c.id);
+          for (const a of acts) {
+            items.push({ time: a.time, actor: a.actorName, actorRole: a.actorRole, kind: 'pickup',
+              text: `离场处置·${PICKUP_ACTION_LABEL[a.type] || a.type}：${a.detail}`, evidence: true,
+              abnormal: ['escalate', 'temp_care'].includes(a.type) });
+          }
+        }
         if (r.checkedOutAt) {
           items.push({ time: r.checkedOutAt, actor: r.checkOutOperator, actorRole: 'staff', kind: 'checkout',
             text: `离场登记：${r.actualLeaveMode === 'solo' ? '独自离场' : '家长接'}`, evidence: true });
@@ -155,7 +193,7 @@ export class ArchiveController {
       days.push(new Date(Date.UTC(ey, em - 1, ed - i)).toISOString().slice(0, 10));
     }
     const totalSeats = await this.db.seats.count();
-    const [reservations, incidents, patrols] = await Promise.all([
+    const [reservations, incidents, patrols, pickupCases] = await Promise.all([
       this.db.reservations.createQueryBuilder('r')
         .leftJoinAndSelect('r.student', 'student')
         .where('r.date IN (:...days)', { days }).getMany(),
@@ -163,6 +201,7 @@ export class ArchiveController {
       this.db.patrols.createQueryBuilder('p')
         .where('p.time BETWEEN :s AND :e', { s: new Date(`${days[0]}T00:00:00+08:00`), e: new Date(`${days[6]}T23:59:59+08:00`) })
         .getMany(),
+      this.db.pickupCases.createQueryBuilder('c').where('c.date IN (:...days)', { days }).getMany(),
     ]);
     const perDay = days.map(day => {
       const rs = reservations.filter(r => r.date === day);
@@ -178,6 +217,7 @@ export class ArchiveController {
           && Number(r.plannedLeave.split(':')[0]) >= 19).length,
         incidents: ins.length,
         incidentsOpen: ins.filter(i => i.status !== 'resolved').length,
+        pickupCases: pickupCases.filter(c => c.date === day).length,
         parentConfirmed: rs.filter(r => r.parentConfirmed).length,
         parentResponseRate: checked ? Math.round((rs.filter(r => r.parentConfirmed).length / checked) * 100) : 0,
       };
@@ -191,10 +231,11 @@ export class ArchiveController {
     const avgUtil = perDay.reduce((a, b) => a + b.utilization, 0) / 7;
     const suggestions: string[] = [];
     if (avgUtil >= 70) suggestions.push('周均使用率已达 70% 以上，建议开放周末时段并增加志愿者排班。');
-    if ((incidentByType['conflict'] || 0) >= 2 || (incidentByType['night_unpicked'] || 0) >= 1)
-      suggestions.push('本周出现冲突/晚间无人接事件，建议增加低龄陪护志愿者。');
-    if (perDay.some(d => d.juniorSoloEvening > 0))
-      suggestions.push('存在低年级晚间独自离场预约，建议缩短低年级独自离场权限截止时间。');
+    if ((incidentByType['conflict'] || 0) >= 2 || (incidentByType['night_unpicked'] || 0) >= 1
+      || pickupCases.length >= 1)
+      suggestions.push('本周出现冲突/晚间无人接处置，建议增加低龄陪护志愿者与晚间值守人手。');
+    if (perDay.some(d => d.juniorSoloEvening > 0) || pickupCases.some(c => c.soloRestrictedAfter))
+      suggestions.push('存在低年级晚间独自离场或无人接处置，建议缩短低年级独自离场权限截止时间，并对相关家庭限制独自离场。');
     if ((incidentByType['no_show'] || 0) >= 3)
       suggestions.push('未到事件较多，建议加强家长到场前提醒与确认。');
     if (!suggestions.length) suggestions.push('本周运行平稳，维持现有开放时段与排班。');
@@ -208,6 +249,8 @@ export class ArchiveController {
         parentResponseRate: totalChecked
           ? Math.round((reservations.filter(r => r.parentConfirmed).length / totalChecked) * 100) : 0,
         patrols: patrols.length,
+        pickupCases: pickupCases.length,
+        pickupSoloRestricted: pickupCases.filter(c => c.soloRestrictedAfter).length,
       },
       incidentByType, perDay, suggestions,
     };

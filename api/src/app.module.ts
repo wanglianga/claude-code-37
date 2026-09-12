@@ -5,7 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-  StudyEvent, Incident, IncidentMessage, Patrol,
+  StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
 } from './entities';
 import { DbService } from './db.service';
 import { AuthController } from './auth.controller';
@@ -14,11 +14,12 @@ import { CatalogController } from './catalog.controller';
 import { ReservationController } from './reservation.controller';
 import { CollaborationController } from './collaboration.controller';
 import { ArchiveController } from './archive.controller';
+import { PickupController } from './pickup.controller';
 import { OpsTasks } from './ops.tasks';
 
 const entities = [
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-  StudyEvent, Incident, IncidentMessage, Patrol,
+  StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
 ];
 
 const dbProvider = {
@@ -59,7 +60,7 @@ const dbProvider = {
   ],
   controllers: [
     HealthController, AuthController, CatalogController, ReservationController,
-    CollaborationController, ArchiveController,
+    CollaborationController, ArchiveController, PickupController,
   ],
   providers: [dbProvider, DbService, OpsTasks],
 })

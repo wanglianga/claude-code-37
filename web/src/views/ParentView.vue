@@ -25,8 +25,10 @@
             <el-form-item label="离场方式">
               <el-radio-group v-model="form.leaveMode">
                 <el-radio value="pickup">家长接</el-radio>
-                <el-radio value="solo">独自离场</el-radio>
+                <el-radio value="solo" :disabled="!!current?.soloPickupRestricted">独自离场</el-radio>
               </el-radio-group>
+              <el-alert v-if="current?.soloPickupRestricted" type="error" :closable="false" style="margin-top:6px"
+                :title="`该家庭已有 ${current.pickupRiskCount} 次晚间无人接记录，独自离场已被社区限制，本次须家长接；如需解除请联系社区工作人员。`" />
             </el-form-item>
             <el-form-item label="紧急联系人">
               <el-input v-model="form.emergencyContact" placeholder="姓名/关系" />
@@ -89,6 +91,26 @@
           </el-table>
         </el-card>
 
+        <el-card style="margin-top:16px" v-if="pickupCases.length">
+          <div class="card-title">🌙 晚间无人接处置（需要您尽快回复）</div>
+          <el-table :data="pickupCases" size="small">
+            <el-table-column label="学生" prop="studentName" width="90" />
+            <el-table-column label="状态" width="120">
+              <template #default="{row}"><el-tag size="small" type="warning">{{ CASE_LABEL[row.status] }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="联系情况" width="150">
+              <template #default="{row}">工作人员已联系 {{ row.contactAttempts }} 次</template>
+            </el-table-column>
+            <el-table-column label="最近说明" prop="lastParentReply" min-width="120" />
+            <el-table-column label="操作" width="180">
+              <template #default="{row}">
+                <el-button v-if="row.status!=='resolved'" type="primary" size="small" @click="replyPickup(row)">立即回复</el-button>
+                <el-tag v-else type="success" size="small">已由 {{ row.pickupPersonName }} 接走</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
         <el-card style="margin-top:16px" v-if="todayIncidents.length">
           <div class="card-title">⚠️ 与我的孩子相关的协同事件</div>
           <el-timeline>
@@ -113,6 +135,11 @@ import { INCIDENT_LABEL, STATUS_LABEL, STATUS_TYPE } from '../store';
 const meta = ref<any>({ students: [], schedules: [] });
 const reservations = ref<any[]>([]);
 const todayIncidents = ref<any[]>([]);
+const pickupCases = ref<any[]>([]);
+const CASE_LABEL: Record<string, string> = {
+  waiting: '留守等待中', escorted: '陪同到门口', temp_care: '临时看护中',
+  escalated: '已升级网格员', resolved: '已接走',
+};
 const saving = ref(false);
 const form = reactive<any>({
   studentId: null, date: null, arrivalSlot: '', plannedLeave: '19:00',
@@ -143,6 +170,16 @@ async function load() {
   const inc: any = await api.get('/incidents', { params: { date: meta.value.today } });
   const myKids = new Set(meta.value.students.map((s: any) => s.id));
   todayIncidents.value = inc.filter((i: any) => myKids.has(i.studentId));
+  pickupCases.value = await api.get('/pickup-cases', { params: { date: meta.value.today } });
+}
+async function replyPickup(row: any) {
+  const { value } = await ElMessageBox.prompt('请告知工作人员您的到达安排（谁来接、多久到）', '回复晚间无人接处置', {
+    inputType: 'textarea', inputValue: '抱歉临时有事，孩子爸爸 15 分钟内到门口',
+  }).catch(() => ({ value: null }));
+  if (value === null) return;
+  await api.post(`/pickup-cases/${row.id}/parent-reply`, { content: value });
+  ElMessage.success('回复已送达值班人员并留痕');
+  await load();
 }
 async function refreshReservations() {
   reservations.value = await api.get('/reservations', { params: { date: meta.value.today } });

@@ -2,7 +2,7 @@ import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-  StudyEvent, Incident, IncidentMessage, Patrol, SeatZone,
+  StudyEvent, Incident, IncidentMessage, Patrol, SeatZone, PickupCase, PickupAction,
 } from './entities';
 
 function weekdayOf(dateStr: string): number {
@@ -198,6 +198,44 @@ export async function runSeed(ds: DataSource) {
           msgs.create({ incidentId: inc.id, authorName: '赵安保', authorRole: 'security', content: '已到场协助，查看监控无肢体冲突。' }),
           msgs.create({ incidentId: inc.id, authorName: '郑华', authorRole: 'parent', content: '已知悉，我马上到。' }),
         ]);
+        // 最近一个历史日：晚间无人接处置（低龄、家长未接通→临时看护→升级网格员→姑姑凭证件接走，家庭被限制独自离场）
+        if (stu.id === s4.id && day === days[days.length - 2]) {
+        const pcCases = ds.getRepository(PickupCase);
+        const pcActs = ds.getRepository(PickupAction);
+        const pc = await pcCases.save(pcCases.create({
+          reservationId: saved.id, studentId: stu.id, date: day, status: 'resolved',
+          openedAt: shTime(day, '20:35'), resolvedAt: shTime(day, '21:20'),
+          authorizedLeaveMode: 'pickup', gradeSnapshot: stu.grade,
+          contactAttempts: 3, contactReached: 0,
+          lastParentReply: '', dutyStaffName: '李社工', escortName: '',
+          tempCareLocation: '社区临时看护室', gridWorkerName: '孙网格员', escalatedAt: shTime(day, '20:55'),
+          pickupPersonName: '郑琴', pickupPersonRelation: '姑姑', pickupPersonPhone: '13700001234',
+          pickupPersonIdCard: '已核验登记', parentConfirmedPickup: true,
+          riskAdded: 1, soloRestrictedAfter: true,
+          resolution: '姑姑郑琴凭证件在网格员见证下接走，家长事后电话确认',
+          lockedSnapshot: {
+            reservation: { id: saved.id, date: day, arrivalSlot: slot, plannedLeave: leave, leaveMode: mode, seat: saved.seatId ? '历史座位' : null },
+            student: { id: stu.id, name: stu.name, grade: stu.grade },
+            late: [{ type: 'late', detail: '晚到 20 分钟', by: '张志愿' }],
+            patrolShifts: [{ recorderName: '赵安保', count: 2, areas: ['自习室全场', '出入口/监控死角'] }],
+            volunteerShifts: [{ volunteerName: '陈晓志愿者', startTime: '18:30', endTime: '21:00' }],
+            incidentId: inc.id, lockedAt: shTime(day, '20:35'),
+          },
+        }));
+        const act = (t: any, name: string, role: string, hm: string, detail: string) =>
+          pcActs.save(pcActs.create({ pickupCaseId: pc.id, type: t, actorName: name, actorRole: role, time: shTime(day, hm), detail }));
+        await act('open', '李社工', 'staff', '20:35', '到计划离场时间家长未到，开单并锁定现场');
+        await act('contact_attempt', '李社工', 'staff', '20:36', '未接通（电话）');
+        await act('contact_attempt', '张志愿', 'volunteer', '20:45', '未接通（电话）');
+        await act('temp_care', '李社工', 'staff', '20:50', '转入临时看护（社区临时看护室）');
+        await act('escalate', '赵安保', 'security', '20:55', '家长 3 次未接，升级网格员孙网格员');
+        await act('parent_reply', '郑华', 'parent', '21:05', '加班没看手机，已委托姑姑去接');
+        await act('resolve', '孙网格员', 'staff', '21:20', '姑姑凭证件接走，该家庭独自离场权限已限制');
+        // 学生档案同步：累计风险并限制独自离场
+        stu.pickupRiskCount += 1;
+        stu.soloPickupRestricted = true;
+        await students.save(stu);
+        }
       }
     }
   }
@@ -268,7 +306,7 @@ if (require.main === module) {
       password: process.env.DB_PASSWORD || 'studyroom',
       database: process.env.DB_NAME || 'studyroom',
       entities: [User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-        StudyEvent, Incident, IncidentMessage, Patrol],
+        StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction],
     });
     await ds.initialize();
     await runSeed(ds);

@@ -52,16 +52,16 @@ const active = ref<number[]>([]);
 
 function kindLabel(k: string) {
   return ({ checkin: '入场核验', seat: '座位分配', patrol: '安全巡查', event: '自习记录',
-    incident: '协同事件', checkout: '离场登记', confirm: '家长确认' } as any)[k] || k;
+    incident: '协同事件', checkout: '离场登记', confirm: '家长确认', pickup: '无人接处置' } as any)[k] || k;
 }
 function kindTag(k: string) {
   return ({ checkin: 'primary', seat: '', patrol: 'success', event: 'info', incident: 'danger',
-    checkout: 'warning', confirm: 'success' } as any)[k] || 'info';
+    checkout: 'warning', confirm: 'success', pickup: 'danger' } as any)[k] || 'info';
 }
 function kindType(k: string, t: any) {
   if (t.abnormal) return 'danger';
   return ({ checkin: 'primary', seat: '', patrol: 'success', event: 'info', incident: 'danger',
-    checkout: 'warning', confirm: 'success' } as any)[k] || '';
+    checkout: 'warning', confirm: 'success', pickup: 'danger' } as any)[k] || '';
 }
 
 async function load() {

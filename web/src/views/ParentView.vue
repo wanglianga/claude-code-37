@@ -28,7 +28,7 @@
                 <el-radio value="solo" :disabled="!!current?.soloPickupRestricted">独自离场</el-radio>
               </el-radio-group>
               <el-alert v-if="current?.soloPickupRestricted" type="error" :closable="false" style="margin-top:6px"
-                :title="`该家庭已有 ${current.pickupRiskCount} 次晚间无人接记录，独自离场已被社区限制，本次须家长接；如需解除请联系社区工作人员。`" />
+                title="该家庭存在晚间无人接处置记录，家庭全部孩子的独自离场均已被社区限制，本次须家长接；如需解除请联系社区工作人员。" />
             </el-form-item>
             <el-form-item label="紧急联系人">
               <el-input v-model="form.emergencyContact" placeholder="姓名/关系" />

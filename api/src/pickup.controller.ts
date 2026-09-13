@@ -87,10 +87,30 @@ export class PickupController {
       where: { id: Number(body.reservationId) }, relations: ['student'],
     });
     if (!r) throw new NotFoundException('预约不存在');
+
+    // 已有进行中处置单 → 幂等返回（不重复生成事件/风险）
     const existing = await this.db.pickupCases.findOne({
       where: { reservationId: r.id, status: In(['waiting', 'escorted', 'temp_care', 'escalated']) },
     });
     if (existing) return this.detail(existing.id, req);
+
+    // 开单时机：仅已入场学生、且已到计划离场时间（家长仍未接）
+    if (r.status !== 'checked_in') {
+      throw new BadRequestException('学生尚未入场，不能开启晚间无人接处置');
+    }
+    const now = DbService.nowShanghai();
+    const todayStr = DbService.todayStr(now);
+    const [ph, pm] = r.plannedLeave.split(':').map(Number);
+    const nowHM = now.getHours() * 60 + now.getMinutes();
+    if (r.date > todayStr) {
+      throw new BadRequestException(`预约日期为 ${r.date}，尚未到计划离场时间 ${r.plannedLeave}，不能提前开启无人接处置`);
+    }
+    if (r.date === todayStr && nowHM < ph * 60 + pm) {
+      const cur = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      throw new BadRequestException(
+        `尚未到计划离场时间 ${r.plannedLeave}（当前 ${cur}），家长仍在正常接领窗口内，不能提前开启无人接处置`,
+      );
+    }
 
     const snapshot = await this.buildSnapshot(r.id, r.studentId);
 
@@ -247,12 +267,12 @@ export class PickupController {
     c.parentConfirmedPickup = !!body.parentConfirmed;
     c.resolution = body.resolution || `${c.pickupPersonName}（${c.pickupPersonRelation}）凭证件接走`;
 
-    // 无人接风险规则：家长始终未联系上、低龄学生或已升级网格员 → 限制该家庭后续独自离场
+    // 无人接风险规则：家长始终未联系上、低龄学生或已升级网格员 → 限制该家庭（全部孩子）后续独自离场
     const noReply = c.contactReached === 0;
     const restrict = body.restrictSolo !== undefined
       ? !!body.restrictSolo
       : (DbService.isJunior(c.gradeSnapshot) || noReply || wasEscalated);
-    const s = await this.db.applyPickupRisk(c.studentId, { restrictSolo: restrict });
+    const s = await this.db.applyPickupRisk(c.studentId, { restrictFamily: restrict });
     c.riskAdded = 1;
     c.soloRestrictedAfter = s.soloPickupRestricted;
 
@@ -294,15 +314,15 @@ export class PickupController {
     return this.detail(c.id, req);
   }
 
-  /** 社区解除家庭独自离场限制 */
+  /** 社区解除家庭独自离场限制（覆盖该家长全部孩子） */
   @Roles('admin', 'staff')
   @Post('students/:id/clear-pickup-restriction')
   async clearRestriction(@Param('id') id: number) {
     const s = await this.db.students.findOneBy({ id: Number(id) });
     if (!s) throw new NotFoundException('学生不存在');
-    s.soloPickupRestricted = false;
-    await this.db.students.save(s);
-    return { id: s.id, soloPickupRestricted: false, pickupRiskCount: s.pickupRiskCount };
+    await this.db.clearFamilyRestriction(s.parentId);
+    const kids = await this.db.students.find({ where: { parentId: s.parentId } });
+    return { id: s.id, familySoloRestricted: false, students: kids.map(k => ({ id: k.id, soloPickupRestricted: false })) };
   }
 
   // ---------------- 内部方法 ----------------

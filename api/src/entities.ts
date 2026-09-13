@@ -14,6 +14,8 @@ export class User {
   @Column() name: string;
   @Column({ type: 'varchar', length: 16 }) role: UserRole;
   @Column({ default: '' }) phone: string;
+  /** 家庭级独自离场限制（家长账号标记，覆盖其全部孩子） */
+  @Column({ default: false }) familySoloRestricted: boolean;
   @CreateDateColumn() createdAt: Date;
 }
 

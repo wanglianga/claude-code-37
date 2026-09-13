@@ -231,10 +231,13 @@ export async function runSeed(ds: DataSource) {
         await act('escalate', '赵安保', 'security', '20:55', '家长 3 次未接，升级网格员孙网格员');
         await act('parent_reply', '郑华', 'parent', '21:05', '加班没看手机，已委托姑姑去接');
         await act('resolve', '孙网格员', 'staff', '21:20', '姑姑凭证件接走，该家庭独自离场权限已限制');
-        // 学生档案同步：累计风险并限制独自离场
+        // 学生档案同步：累计风险并限制独自离场（家庭级：家长账号 + 其全部孩子）
         stu.pickupRiskCount += 1;
         stu.soloPickupRestricted = true;
         await students.save(stu);
+        p3.familySoloRestricted = true;
+        await users.save(p3);
+        await students.update({ parentId: p3.id }, { soloPickupRestricted: true });
         }
       }
     }

@@ -97,14 +97,25 @@ export class DbService {
     };
   }
 
-  /** 离场处置结案：累计该家庭（学生）离场风险，并按规则限制后续独自离场 */
-  async applyPickupRisk(studentId: number, opts: { restrictSolo?: boolean }) {
+  /** 离场处置结案：累计该家庭（学生）离场风险；并按规则对该家庭全部孩子限制独自离场 */
+  async applyPickupRisk(studentId: number, opts: { restrictFamily?: boolean }) {
     const s = await this.students.findOneBy({ id: studentId });
     if (!s) return s;
     s.pickupRiskCount += 1;
-    if (opts.restrictSolo) s.soloPickupRestricted = true;
+    s.soloPickupRestricted = !!opts.restrictFamily || s.soloPickupRestricted;
     await this.students.save(s);
+    if (opts.restrictFamily) {
+      await this.users.update({ id: s.parentId }, { familySoloRestricted: true });
+      // 家庭级标记同步到该家长的所有学生，便于列表直接展示
+      await this.students.update({ parentId: s.parentId }, { soloPickupRestricted: true });
+    }
     return s;
+  }
+
+  /** 解除家庭级独自离场限制（覆盖该家长全部孩子） */
+  async clearFamilyRestriction(parentId: number) {
+    await this.users.update({ id: parentId }, { familySoloRestricted: false });
+    await this.students.update({ parentId }, { soloPickupRestricted: false });
   }
 
   /**

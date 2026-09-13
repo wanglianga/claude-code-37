@@ -111,9 +111,9 @@
             <el-form-item label="家长确认">
               <el-switch v-model="resolveForm.parentConfirmed" active-text="已与家长电话/消息确认放行" />
             </el-form-item>
-            <el-form-item label="限制后续独自离场">
+            <el-form-item label="限制家庭独自离场">
               <el-switch v-model="resolveForm.restrictSolo"
-                         active-text="限制该家庭后续预约独自离场（低龄/未联系上/已升级时默认限制）" />
+                         active-text="限制该家庭全部孩子后续预约独自离场（低龄/未联系上/已升级时默认限制）" />
             </el-form-item>
             <el-button type="success" @click="doResolve">接走结案并锁定快照</el-button>
           </el-form>

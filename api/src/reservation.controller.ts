@@ -30,10 +30,13 @@ export class ReservationController {
     const plannedLeave: string = body.plannedLeave; // HH:mm
     const leaveMode = body.leaveMode === 'solo' ? 'solo' : 'pickup';
     if (!arrivalSlot || !plannedLeave) throw new BadRequestException('请填写到场时段与计划离场时间');
-    if (leaveMode === 'solo' && student.soloPickupRestricted) {
-      throw new BadRequestException(
-        `该家庭已有 ${student.pickupRiskCount} 次晚间无人接处置记录，学生独自离场权限已被社区限制，请选择家长接，或联系社区工作人员解除限制`,
-      );
+    if (leaveMode === 'solo') {
+      const parent = await this.db.users.findOneBy({ id: student.parentId });
+      if (parent?.familySoloRestricted) {
+        throw new BadRequestException(
+          '该家庭存在晚间无人接处置记录，全部孩子的独自离场权限已被社区限制，请选择家长接，或联系社区工作人员解除家庭限制',
+        );
+      }
     }
     const slotStart = toMin(arrivalSlot.split('-')[0]);
     const slotEnd = toMin(arrivalSlot.split('-')[1] || arrivalSlot.split('-')[0]);

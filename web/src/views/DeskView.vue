@@ -82,7 +82,12 @@
             </el-button>
             <el-button v-if="row.status==='checked_in'" size="small" @click="openRecord(row)">自习记录</el-button>
             <el-button v-if="row.status==='checked_in'" type="warning" size="small" @click="openCheckout(row)">离场</el-button>
-            <el-button v-if="row.status==='checked_in'" type="danger" plain size="small" @click="openPickup(row)">晚间无人接</el-button>
+            <el-button v-if="row.status==='checked_in' && isDue(row)" type="danger" plain size="small" @click="openPickup(row)">
+              晚间无人接
+            </el-button>
+            <el-tooltip v-else-if="row.status==='checked_in'" content="学生尚未到计划离场时间，家长仍在正常接领窗口，到点后可开无人接处置" placement="top">
+              <el-button type="danger" plain size="small" disabled>晚间无人接</el-button>
+            </el-tooltip>
             <el-button size="small" @click="openIncident(row)">协同事件</el-button>
           </template>
         </el-table-column>
@@ -204,6 +209,13 @@ function rowClass({ row }: any) {
   if (row.student?.watchlisted) return 'watch-row';
   if (row.status === 'pending') return 'pending-row';
   return '';
+}
+
+/** 是否已到该预约的计划离场时间（上海墙上时间） */
+function isDue(row: any) {
+  if (!row.plannedLeave) return false;
+  const now = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(11, 16); // UTC+8 HH:mm
+  return now >= row.plannedLeave;
 }
 
 async function load() {

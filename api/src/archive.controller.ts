@@ -34,6 +34,9 @@ export class ArchiveController {
     const pickupCases = await this.db.pickupCases.find({
       where: { date: day }, relations: ['student'], order: { openedAt: 'ASC' },
     });
+    const seatIssues = await this.db.seatIssues.find({
+      where: { date: day }, relations: ['student', 'seat'], order: { createdAt: 'ASC' },
+    });
 
     const checkedIn = reservations.filter(r => ['checked_in', 'checked_out'].includes(r.status));
     return {
@@ -51,6 +54,8 @@ export class ArchiveController {
         patrols: patrolRows.length,
         pickupCases: pickupCases.length,
         pickupRestrictedFamilies: pickupCases.filter(c => c.soloRestrictedAfter).length,
+        seatIssues: seatIssues.length,
+        seatIssuesResolved: seatIssues.filter(i => i.status === 'resolved').length,
       },
       records: reservations.map(r => ({
         reservationId: r.id,
@@ -70,8 +75,7 @@ export class ArchiveController {
       patrols: patrolRows.map(p => ({
         id: p.id, time: p.time, area: p.area, finding: p.finding, normal: p.normal, recorderName: p.recorderName,
       })),
-      pickupCases: pickupCases.map(c => ({
-        id: c.id, studentName: c.student?.name, grade: c.gradeSnapshot,
+      pickupCases: pickupCases.map(c => ({        id: c.id, studentName: c.student?.name, grade: c.gradeSnapshot,
         status: c.status, openedAt: c.openedAt, resolvedAt: c.resolvedAt,
         authorizedLeaveMode: c.authorizedLeaveMode,
         contactAttempts: c.contactAttempts, contactReached: c.contactReached,
@@ -81,6 +85,13 @@ export class ArchiveController {
         pickupPersonName: c.pickupPersonName, pickupPersonRelation: c.pickupPersonRelation,
         parentConfirmedPickup: c.parentConfirmedPickup,
         soloRestrictedAfter: c.soloRestrictedAfter, resolution: c.resolution,
+      })),
+      seatIssues: seatIssues.map(i => ({
+        id: i.id, type: i.type, title: i.title, status: i.status,
+        studentName: i.student?.name, seatCode: i.seat?.code, zone: i.seat?.zone,
+        newSeatId: i.newSeatId, involvesBlindSpot: i.involvesBlindSpot,
+        itemFound: i.itemFound, parentNotified: i.parentNotified,
+        reportedByName: i.reportedByName, resolution: i.resolution,
       })),
     };
   }
@@ -116,6 +127,9 @@ export class ArchiveController {
       .where('c.date = :day', { day }).orderBy('c.openedAt', 'ASC').getMany();
     const pickupActions = await this.db.pickupActions.createQueryBuilder('a')
       .where('a.time BETWEEN :s AND :e', { s: start, e: end }).orderBy('a.time', 'ASC').getMany();
+    const seatIssues = await this.db.seatIssues.createQueryBuilder('si')
+      .leftJoinAndSelect('si.actions', 'sia')
+      .where('si.date = :day', { day }).orderBy('si.createdAt', 'ASC').getMany();
 
     const EVENT_LABEL: Record<string, string> = {
       late: '迟到', leave_seat: '离座', charger: '借用充电器', temp_out: '临时外出',
@@ -161,6 +175,17 @@ export class ArchiveController {
             items.push({ time: a.time, actor: a.actorName, actorRole: a.actorRole, kind: 'pickup',
               text: `离场处置·${PICKUP_ACTION_LABEL[a.type] || a.type}：${a.detail}`, evidence: true,
               abnormal: ['escalate', 'temp_care'].includes(a.type) });
+          }
+        }
+        // 座位冲突 / 物品遗失处置
+        const rSeatIssues = seatIssues.filter(si => si.reservationId === r.id || si.studentId === r.studentId);
+        for (const si of rSeatIssues) {
+          items.push({ time: si.createdAt, actor: si.reportedByName, actorRole: 'staff', kind: 'seat_issue',
+            text: `座位事件【${si.type === 'item_lost' ? '物品遗失' : '座位冲突'}】${si.title}（${si.seat?.code || ''}${si.seat && !si.seat.monitored ? '·监控盲区' : ''}）状态：${si.status}`,
+            evidence: true });
+          for (const a of (si as any).actions || []) {
+            items.push({ time: a.time, actor: a.actorName, actorRole: a.actorRole, kind: 'seat_issue',
+              text: `座位处置：${a.detail}`, evidence: ['reassign'].includes(a.type) });
           }
         }
         if (r.checkedOutAt) {

@@ -6,6 +6,7 @@ import { DataSource } from 'typeorm';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
   StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
+  SeatIssue, SeatIssueAction, PatrolFocus, MaintenanceItem,
 } from './entities';
 import { DbService } from './db.service';
 import { AuthController } from './auth.controller';
@@ -15,11 +16,13 @@ import { ReservationController } from './reservation.controller';
 import { CollaborationController } from './collaboration.controller';
 import { ArchiveController } from './archive.controller';
 import { PickupController } from './pickup.controller';
+import { SeatIssueController } from './seat-issue.controller';
 import { OpsTasks } from './ops.tasks';
 
 const entities = [
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
   StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
+  SeatIssue, SeatIssueAction, PatrolFocus, MaintenanceItem,
 ];
 
 const dbProvider = {
@@ -60,7 +63,7 @@ const dbProvider = {
   ],
   controllers: [
     HealthController, AuthController, CatalogController, ReservationController,
-    CollaborationController, ArchiveController, PickupController,
+    CollaborationController, ArchiveController, PickupController, SeatIssueController,
   ],
   providers: [dbProvider, DbService, OpsTasks],
 })

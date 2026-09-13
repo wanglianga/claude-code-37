@@ -114,7 +114,19 @@ web 检查 nginx 首页，db 检查 `pg_isready`）；容器内服务均以**非
 | 按周看使用率/异常/家长响应，决定周末/陪护/独自离场 | 「周统计与决策」页：7 天使用率进度条、异常分类分布、家长响应率、自动运营建议 |
 | 按学生/家长/志愿者/安保生成看护时间线，可回溯入场→座位→巡查→离场证据 | 「看护时间线」页：按学生折叠的完整时间线，证据/异常/事件入口标记 |
 | 长期异常学生重点关注，后续预约需家长重新确认 | 异常分自动累计（≥8 进名单）；名单学生新预约为 `pending`，家长重新确认后生效；可手动管理 |
-| 晚间无人接处置（本轮新增） | 「晚间无人接处置」工作台，见下节 |
+| 晚间无人接处置 | 「晚间无人接处置」工作台，见下节 |
+| 座位冲突与物品遗失 | 「座位冲突/寻物」工作台，见下节 |
+
+### 座位冲突与物品遗失处置
+
+学生反映座位被占或物品丢失时，工作人员（志愿者/安保/社区）在工作台一键上报，平台**自动关联现场证据**：
+入场时间与核验人、座位分配与分区、是否监控覆盖、**同桌/邻座学生**（同分区编号相邻且在场者）、当日相关巡查、该生临时离场/离座记录、志愿者排班。
+
+- **工作人员处置**：调整座位（自动选空闲且优先监控覆盖的座位，或手动指定，占用校验）、发起寻物（查监控+询问同桌）、联系家长留痕、家长回复、结案。
+- **调座联动**：调整座位后，自动把**低龄陪读区、监控盲区、该生临时离场路线**纳入当晚巡查重点（PatrolFocus，提频至每 20 分钟），在「安全巡查」页置顶展示。
+- **寻物提频**：寻物期间座位区巡查提频至每 15 分钟；寻物结束后座位区巡查与监控盲区同步调整（结案再提频）。
+- **监控盲区整改入预算**：事件涉及监控盲区（如全场唯一的非监控位 G-06）时，结案自动生成「补装/调整摄像头」的**场地维护预算项**（待审批）；社区负责人在「场地维护预算」页批准/驳回、核定金额。监控覆盖座位不产生该项。
+- 处置全过程进入看护时间线与当日档案（含座位事件分页与汇总）。
 
 ### 晚间无人接处置闭环
 
@@ -140,6 +152,9 @@ web 检查 nginx 首页，db 检查 `pg_isready`）；容器内服务均以**非
 - `GET|POST /api/pickup-cases`、`GET /api/pickup-cases/:id`
 - `POST /api/pickup-cases/:id/{contact,parent-reply,decide,escalate,resolve}`
 - `POST /api/students/:id/clear-pickup-restriction`
+- `GET|POST /api/seat-issues`、`GET /api/seat-issues/:id`
+- `POST /api/seat-issues/:id/{reassign,start-search,contact-parent,parent-reply,resolve}`
+- `GET /api/patrol-focuses`、`GET /api/maintenance`、`POST /api/maintenance/:id/{approve,reject}`
 - `GET|POST /api/patrols`
 - `GET /api/daily-archive`、`GET /api/timeline`、`GET /api/weekly-report`
 - `GET /api/watchlist`、`POST /api/students/:id/watchlist`

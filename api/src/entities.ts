@@ -322,3 +322,107 @@ export class PickupAction {
   @Column({ type: 'timestamptz' }) time: Date;
   @CreateDateColumn() createdAt: Date;
 }
+
+// ---------- 座位冲突 / 物品遗失 ----------
+export type SeatIssueType = 'seat_conflict' | 'item_lost';
+export type SeatIssueStatus = 'open' | 'responding' | 'resolved';
+
+@Entity('seat_issues')
+export class SeatIssue {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ type: 'date' }) date: string;
+  @Column({ type: 'varchar', length: 24 }) type: SeatIssueType;
+  @Column() title: string;
+  @Column({ default: '' }) description: string;
+  @Column({ type: 'varchar', length: 16, default: 'open' }) status: SeatIssueStatus;
+
+  @Column({ name: 'reservation_id' }) reservationId: number;
+  @ManyToOne(() => Reservation, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'reservation_id' }) reservation: Reservation;
+  @Column({ name: 'student_id' }) studentId: number;
+  @ManyToOne(() => Student) @JoinColumn({ name: 'student_id' }) student: Student;
+
+  /** 上报时座位 */
+  @Column({ name: 'seat_id' }) seatId: number;
+  @ManyToOne(() => Seat) @JoinColumn({ name: 'seat_id' }) seat: Seat;
+  /** 调整后座位 */
+  @Column({ name: 'new_seat_id', nullable: true }) newSeatId?: number;
+  @ManyToOne(() => Seat) @JoinColumn({ name: 'new_seat_id' }) newSeat?: Seat;
+  @Column({ name: 'room_id' }) roomId: number;
+
+  /** 上下文快照：入场时间/座位分配/监控覆盖/同桌学生/当晚巡查/临时离场 */
+  @Column({ type: 'jsonb', nullable: true }) context?: any;
+
+  @Column({ default: false }) involvesBlindSpot: boolean; // 涉及监控盲区
+  @Column({ default: false }) parentNotified: boolean;
+  @Column({ default: '' }) parentReply: string;
+  @Column({ default: '' }) resolution: string;
+  @Column({ default: false }) itemFound: boolean;
+  /** 结案后提频的区域 */
+  @Column({ default: '' }) boostedZone: string;
+
+  @Column() reportedByName: string;
+  @Column({ type: 'timestamptz', nullable: true }) resolvedAt?: Date;
+  @OneToMany(() => SeatIssueAction, a => a.issue, { cascade: true })
+  actions: SeatIssueAction[];
+  @CreateDateColumn() createdAt: Date;
+  @UpdateDateColumn() updatedAt: Date;
+}
+
+export type SeatIssueActionType =
+  | 'report'          // 学生反映/工作人员上报
+  | 'reassign'        // 调整座位
+  | 'start_search'    // 发起寻物
+  | 'contact_parent'  // 联系家长
+  | 'parent_reply'
+  | 'note'
+  | 'resolve';
+
+@Entity('seat_issue_actions')
+export class SeatIssueAction {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ name: 'seat_issue_id' }) issueId: number;
+  @ManyToOne(() => SeatIssue, i => i.actions, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'seat_issue_id' }) issue: SeatIssue;
+  @Column({ type: 'varchar', length: 24 }) type: SeatIssueActionType;
+  @Column({ default: '' }) detail: string;
+  @Column() actorName: string;
+  @Column({ type: 'varchar', length: 16 }) actorRole: string;
+  @Column({ type: 'timestamptz' }) time: Date;
+  @CreateDateColumn() createdAt: Date;
+}
+
+/** 当晚巡查重点 / 频次提升区域（座位事件联动） */
+@Entity('patrol_focuses')
+export class PatrolFocus {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ type: 'date' }) date: string;
+  @Column() area: string;                 // 巡查重点描述
+  @Column({ default: '' }) zone: string; // 座位分区
+  @Column({ name: 'room_id', nullable: true }) roomId?: number;
+  @Column({ type: 'int', default: 30 }) frequencyMinutes: number; // 提高后的巡查频次
+  @Column({ default: '' }) reason: string;
+  @Column({ name: 'seat_issue_id', nullable: true }) seatIssueId?: number;
+  @Column({ default: true }) active: boolean;
+  @Column() createdByName: string;
+  @CreateDateColumn() createdAt: Date;
+}
+
+/** 场地维护预算项（监控盲区整改等） */
+@Entity('maintenance_items')
+export class MaintenanceItem {
+  @PrimaryGeneratedColumn() id: number;
+  @Column() title: string;
+  @Column({ default: '' }) area: string;
+  @Column({ default: '' }) zone: string;
+  @Column({ default: '' }) description: string;
+  @Column({ default: 'monitor_blind_spot' }) category: string;
+  @Column({ type: 'numeric', precision: 10, scale: 2, default: 0 }) estimatedCost: number | string;
+  /** proposed 待审批 / approved 已批准 / rejected 已驳回 / done 已完成 */
+  @Column({ type: 'varchar', length: 16, default: 'proposed' }) status: string;
+  @Column({ name: 'seat_issue_id', nullable: true }) seatIssueId?: number;
+  @Column({ default: '' }) proposedByName: string;
+  @Column({ default: '' }) approvedByName: string;
+  @Column({ type: 'timestamptz', nullable: true }) approvedAt?: Date;
+  @CreateDateColumn() createdAt: Date;
+}

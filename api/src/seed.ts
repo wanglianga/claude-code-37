@@ -3,6 +3,7 @@ import * as bcrypt from 'bcryptjs';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
   StudyEvent, Incident, IncidentMessage, Patrol, SeatZone, PickupCase, PickupAction,
+  SeatIssue, SeatIssueAction, PatrolFocus, MaintenanceItem,
 } from './entities';
 
 function weekdayOf(dateStr: string): number {
@@ -309,7 +310,8 @@ if (require.main === module) {
       password: process.env.DB_PASSWORD || 'studyroom',
       database: process.env.DB_NAME || 'studyroom',
       entities: [User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
-        StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction],
+        StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
+        SeatIssue, SeatIssueAction, PatrolFocus, MaintenanceItem],
     });
     await ds.initialize();
     await runSeed(ds);

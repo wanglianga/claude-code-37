@@ -18,6 +18,12 @@
         </template>
         <el-menu-item index="/incidents"><el-icon><Warning /></el-icon><span>协同事件</span></el-menu-item>
         <el-menu-item v-if="auth.role!=='parent'" index="/pickup"><el-icon><MoonNight /></el-icon><span>晚间无人接处置</span></el-menu-item>
+        <el-menu-item v-if="['staff','volunteer','admin','security'].includes(auth.role)" index="/seat-issues">
+          <el-icon><Connection /></el-icon><span>座位冲突/寻物</span>
+        </el-menu-item>
+        <template v-if="['staff','admin'].includes(auth.role)">
+          <el-menu-item index="/maintenance"><el-icon><Money /></el-icon><span>场地维护预算</span></el-menu-item>
+        </template>
         <el-menu-item index="/timeline"><el-icon><Clock /></el-icon><span>看护时间线</span></el-menu-item>
         <template v-if="['staff','admin','volunteer','security'].includes(auth.role)">
           <el-menu-item index="/archive"><el-icon><Folder /></el-icon><span>当日档案</span></el-menu-item>
@@ -58,6 +64,8 @@ const titles: Record<string, string> = {
   '/seats': '座位分配图（低龄 / 安静 / 临窗 / 监控覆盖）',
   '/incidents': '跨角色协同事件处置',
   '/pickup': '晚间无人接处置（等待/陪同/临时看护/升级网格员/接走锁定）',
+  '/seat-issues': '座位冲突与物品遗失处置（调座/寻物/巡查提频/盲区预算）',
+  '/maintenance': '场地维护预算（监控盲区整改审批）',
   '/patrols': '安全巡查记录',
   '/timeline': '当日看护时间线（入场→座位→巡查→异常→离场证据链）',
   '/archive': '当日档案',

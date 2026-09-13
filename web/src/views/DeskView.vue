@@ -89,6 +89,15 @@
               <el-button type="danger" plain size="small" disabled>晚间无人接</el-button>
             </el-tooltip>
             <el-button size="small" @click="openIncident(row)">协同事件</el-button>
+            <el-dropdown v-if="row.status==='checked_in'" trigger="click" @command="(c:string)=>openSeatIssue(row,c)">
+              <el-button size="small" type="danger" plain style="margin-left:4px">座位/物品<el-icon class="el-icon--right"><arrow-down /></el-icon></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="seat_conflict">反映座位被占/冲突</el-dropdown-item>
+                  <el-dropdown-item command="item_lost">反映物品丢失</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -319,6 +328,24 @@ async function openPickup(row: any) {
   const c: any = await api.post('/pickup-cases', { reservationId: row.id });
   ElMessage.success(`处置单 #${c.id} 已开单，现场快照已锁定`);
   location.hash = '#/pickup';
+}
+
+// ---------- 座位冲突 / 物品遗失 ----------
+async function openSeatIssue(row: any, type: string) {
+  const isLost = type === 'item_lost';
+  const { value } = await ElMessageBox.prompt(
+    isLost ? '请描述遗失物品与最后见到位置' : '请描述座位被占/冲突情况',
+    isLost ? '物品丢失上报' : '座位冲突上报',
+    { inputType: 'textarea', inputValue: isLost ? '物品：；最后见到时间/位置：' : '', confirmButtonText: '上报并前往处置' },
+  ).catch(() => ({ value: null }));
+  if (value === null) return;
+  const c: any = await api.post('/seat-issues', {
+    reservationId: row.id, type,
+    title: isLost ? `${row.student.name}报物品遗失` : `${row.student.name}反映座位被占/冲突`,
+    description: value,
+  });
+  ElMessage.success(`已建立${isLost ? '物品遗失' : '座位冲突'}事件 #${c.id}，现场证据已自动关联`);
+  location.hash = '#/seat-issues';
 }
 
 </script>

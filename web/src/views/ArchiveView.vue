@@ -5,10 +5,9 @@
         <div class="card-title" style="margin:0">📁 当日看护档案（{{ data.date || date }}）</div>
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" size="small" @change="load" />
       </div>
-      <el-row :gutter="12" style="margin-top:14px">
-        <el-col :span="3" v-for="c in cards" :key="c.label">          <el-statistic :title="c.label" :value="c.value" />
-        </el-col>
-      </el-row>
+      <div class="stat-grid">
+        <div v-for="c in cards" :key="c.label" class="stat-cell"><el-statistic :title="c.label" :value="c.value" /></div>
+      </div>
     </el-card>
 
     <el-card style="margin-top:14px">
@@ -73,8 +72,7 @@
             </el-timeline-item>
           </el-timeline>
         </el-tab-pane>
-        <el-tab-pane :label="`晚间无人接处置（${data.pickupCases?.length||0}）`" name="pickup">
-          <el-table :data="data.pickupCases" size="small" border>
+        <el-tab-pane :label="`晚间无人接处置（${data.pickupCases?.length||0}）`" name="pickup">          <el-table :data="data.pickupCases" size="small" border>
             <el-table-column prop="studentName" label="学生" width="90" />
             <el-table-column label="状态" width="120">
               <template #default="{row}"><el-tag size="small">{{ PICKUP_STATUS[row.status] }}</el-tag></template>
@@ -92,6 +90,29 @@
               </template>
             </el-table-column>
             <el-table-column prop="resolution" label="处置结论" min-width="180" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane :label="`座位冲突/寻物（${data.seatIssues?.length||0}）`" name="seatIssues">
+          <el-table :data="data.seatIssues" size="small" border>
+            <el-table-column label="类型" width="100">
+              <template #default="{row}">
+                <el-tag size="small" :type="row.type==='item_lost'?'warning':'danger'">
+                  {{ row.type==='item_lost' ? '物品遗失' : '座位冲突' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="title" label="标题" min-width="180" />
+            <el-table-column prop="studentName" label="学生" width="90" />
+            <el-table-column label="座位/调座" width="120">
+              <template #default="{row}">{{ row.seatCode }}{{ row.newSeatId ? ' →已调' : '' }}</template>
+            </el-table-column>
+            <el-table-column label="盲区" width="70">
+              <template #default="{row}"><el-tag v-if="row.involvesBlindSpot" size="small" type="info" effect="dark">是</el-tag></template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="{row}"><el-tag size="small" :type="row.status==='resolved'?'success':'warning'">{{ row.status==='resolved'?'已结案':'处置中' }}</el-tag></template>
+            </el-table-column>
+            <el-table-column prop="resolution" label="结果" min-width="160" />
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -119,6 +140,7 @@ const cards = computed(() => {
     { label: '处理中事件', value: s.incidentsOpen ?? 0 },
     { label: '无人接处置', value: s.pickupCases ?? 0 },
     { label: '限制独自家庭', value: s.pickupRestrictedFamilies ?? 0 },
+    { label: '座位事件', value: s.seatIssues ?? 0 },
     { label: '巡查次数', value: s.patrols ?? 0 },
   ];
 });
@@ -129,4 +151,8 @@ const PICKUP_STATUS: Record<string, string> = {
 async function load() { data.value = await api.get('/daily-archive', { params: { date: date.value } }); }
 onMounted(load);
 </script>
-<style scoped>.muted{color:#999;font-size:12px}</style>
+<style scoped>
+.muted{color:#999;font-size:12px}
+.stat-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-top:14px; }
+.stat-cell { background:#f7f9fc; border-radius:8px; padding:10px 12px; }
+</style>

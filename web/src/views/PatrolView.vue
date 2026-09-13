@@ -1,6 +1,16 @@
 <template>
   <el-row :gutter="14">
     <el-col :span="9">
+      <el-card style="margin-bottom:14px">
+        <div class="card-title">🚨 当晚巡查重点 / 提频区域</div>
+        <el-table :data="focuses" size="small" border empty-text="暂无联动重点">
+          <el-table-column prop="area" label="重点区域" min-width="150" />
+          <el-table-column label="频次" width="90">
+            <template #default="{row}"><el-tag size="small" type="danger">每{{ row.frequencyMinutes }}分</el-tag></template>
+          </el-table-column>
+          <el-table-column prop="reason" label="原因" min-width="140" />
+        </el-table>
+      </el-card>
       <el-card>
         <div class="card-title">🔦 新增安全巡查</div>
         <el-form label-width="82px">
@@ -57,11 +67,13 @@ import { api } from '../api';
 const areas = ['自习室全场', '出入口/监控死角', '低龄陪护区', '走廊与消防通道', '配电间/照明', '饮水间/卫生间'];
 const meta = ref<any>({ rooms: [] });
 const rows = ref<any[]>([]);
+const focuses = ref<any[]>([]);
 const date = ref(new Date().toLocaleDateString('en-CA'));
 const form = reactive<any>({ area: '自习室全场', roomId: null, normal: true, finding: '' });
 
 async function load() {
   rows.value = await api.get('/patrols', { params: { date: date.value } });
+  focuses.value = await api.get('/patrol-focuses', { params: { date: date.value } });
 }
 async function submit() {
   if (!form.area) return ElMessage.warning('请填写巡查区域');

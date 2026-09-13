@@ -3,6 +3,7 @@ import { DataSource, In } from 'typeorm';
 import {
   User, Student, Room, Seat, OpenSchedule, VolunteerShift, Reservation,
   StudyEvent, Incident, IncidentMessage, Patrol, PickupCase, PickupAction,
+  SeatIssue, SeatIssueAction, PatrolFocus, MaintenanceItem,
 } from './entities';
 
 @Injectable()
@@ -37,6 +38,10 @@ export class DbService {
   get patrols() { return this.ds.getRepository(Patrol); }
   get pickupCases() { return this.ds.getRepository(PickupCase); }
   get pickupActions() { return this.ds.getRepository(PickupAction); }
+  get seatIssues() { return this.ds.getRepository(SeatIssue); }
+  get seatIssueActions() { return this.ds.getRepository(SeatIssueAction); }
+  get patrolFocuses() { return this.ds.getRepository(PatrolFocus); }
+  get maintenanceItems() { return this.ds.getRepository(MaintenanceItem); }
 
   /** 累计异常分，达到阈值进入重点关注名单 */
   async addAbnormal(studentId: number, points: number) {
@@ -49,6 +54,30 @@ export class DbService {
 
   /** 低龄阈值：1-3 年级 */
   static isJunior(grade: number) { return grade <= 3; }
+
+  /** 同桌/邻座学生：同分区、编号相邻（±2）且当日在场的其他学生 */
+  async neighborStudents(seat: Seat, date: string, excludeReservationId?: number) {
+    const m = seat.code.match(/^([A-Za-z]+)-(\d+)$/);
+    if (!m) return [];
+    const prefix = m[1];
+    const num = Number(m[2]);
+    const candidates = await this.seats.find({ where: { roomId: seat.roomId } });
+    const near = candidates.filter(s => {
+      const mm = s.code.match(/^([A-Za-z]+)-(\d+)$/);
+      return mm && mm[1] === prefix && Math.abs(Number(mm[2]) - num) <= 2 && s.id !== seat.id;
+    });
+    const nearIds = new Set(near.map(s => s.id));
+    const inside = await this.reservations.find({
+      where: { date, status: In(['checked_in']) }, relations: ['student', 'seat'],
+    });
+    return inside
+      .filter(r => r.seatId && nearIds.has(r.seatId) && r.id !== excludeReservationId)
+      .map(r => ({
+        reservationId: r.id, studentId: r.studentId,
+        studentName: r.student?.name, grade: r.student?.grade,
+        seatCode: r.seat?.code, checkedInAt: r.checkedInAt,
+      }));
+  }
 
   /** 现场快照：预约、学生、迟到、当日巡查班次、志愿者排班、紧急联系、协同事件 */
   async buildPickupSnapshot(reservationId: number, studentId: number, incidentId?: number | null) {

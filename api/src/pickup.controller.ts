@@ -253,6 +253,7 @@ export class PickupController {
     restrictSolo?: boolean; resolution?: string;
   }) {
     const c = await this.getCaseOr404(id);
+    if (c.status === 'resolved') throw new BadRequestException('处置单已结案，不能重复结案');
     if (!body.pickupPersonName?.trim()) throw new BadRequestException('请登记实际接走人');
     if (!body.pickupPersonRelation?.trim()) throw new BadRequestException('请登记接走人与学生关系');
 

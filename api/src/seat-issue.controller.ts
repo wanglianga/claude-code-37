@@ -1,6 +1,6 @@
 import {
   Body, Controller, Get, Param, Post, Query, Req, UseGuards,
-  BadRequestException, ForbiddenException, NotFoundException,
+  BadRequestException, ConflictException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
 import { In } from 'typeorm';
 import { DbService } from './db.service';
@@ -100,6 +100,7 @@ export class SeatIssueController {
   @Post('seat-issues/:id/reassign')
   async reassign(@Param('id') id: number, @Req() req: any, @Body() body: { newSeatId?: number; note?: string }) {
     const issue = await this.getOr404(id);
+    this.assertOpen(issue);
     const r = await this.db.reservations.findOne({
       where: { id: issue.reservationId }, relations: ['student', 'seat'],
     });
@@ -128,10 +129,19 @@ export class SeatIssueController {
     }
 
     const oldSeat = issue.seatId ? await this.db.seats.findOneBy({ id: issue.seatId }) : null;
-    r.seatId = target.id; r.roomId = target.roomId;
-    await this.db.reservations.save(r);
+    // 用 update 更新外键，避免带 seat 关联保存时被旧关联覆盖
+    await this.db.reservations.update(r.id, { seatId: target.id, roomId: target.roomId });
     issue.newSeatId = target.id; issue.seatId = target.id; issue.roomId = target.roomId;
     issue.involvesBlindSpot = issue.involvesBlindSpot || !target.monitored || !(oldSeat?.monitored ?? true);
+    // 同步刷新现场上下文：当前座位更新为新座位，原始座位保留为证据
+    if (issue.context) {
+      issue.context.originalSeat = issue.context.originalSeat || issue.context.seat;
+      issue.context.seat = {
+        id: target.id, code: target.code, zone: target.zone, monitored: target.monitored,
+        roomId: target.roomId, roomName: (target as any).room?.name,
+      };
+      issue.context.reassignedFrom = oldSeat ? oldSeat.code : null;
+    }
     await this.db.seatIssues.save(issue);
     await this.addAction(id, 'reassign', req,
       `座位 ${oldSeat?.code || '—'} → ${target.code}（${this.zoneLabel(target.zone)}，${target.monitored ? '监控覆盖' : '监控盲区'}）${body.note ? '：' + body.note : ''}`);
@@ -147,11 +157,11 @@ export class SeatIssueController {
     if (tempOut.length) focusAreas.push(`该生临时离场路线（${tempOut.length} 次记录）`);
     if (!focusAreas.length) focusAreas.push(`${this.zoneLabel(target.zone)}（调座区域）`);
     for (const area of focusAreas) {
-      await this.db.patrolFocuses.save(this.db.patrolFocuses.create({
+      await this.addFocusOnce(issue.id, {
         date: issue.date, area, zone: target.zone, roomId: target.roomId,
         frequencyMinutes: 20, reason: `座位调整联动（事件 #${issue.id}）：${area}`,
-        seatIssueId: issue.id, createdByName: req.user.name,
-      }));
+        createdByName: req.user.name,
+      });
     }
     return this.detail(issue.id, req);
   }
@@ -161,18 +171,18 @@ export class SeatIssueController {
   @Post('seat-issues/:id/start-search')
   async startSearch(@Param('id') id: number, @Req() req: any, @Body() body: { itemName?: string; note?: string }) {
     const issue = await this.getOr404(id);
+    this.assertOpen(issue);
     if (issue.type !== 'item_lost') throw new BadRequestException('仅物品遗失事件可发起寻物');
     issue.status = 'responding';
     await this.db.seatIssues.save(issue);
     await this.addAction(id, 'start_search', req,
       `发起寻物${body.itemName ? '：' + body.itemName : ''}${body.note ? '（' + body.note + '）' : ''}；已安排查看监控与询问同桌`);
-    // 寻物期间提高该座位区巡查频次
     const seat = await this.db.seats.findOneBy({ id: issue.seatId });
-    await this.db.patrolFocuses.save(this.db.patrolFocuses.create({
+    await this.addFocusOnce(issue.id, {
       date: issue.date, area: `${this.zoneLabel(seat?.zone)}寻物排查`, zone: seat?.zone || '',
       roomId: issue.roomId, frequencyMinutes: 15,
-      reason: `物品遗失寻物（事件 #${issue.id}）`, seatIssueId: issue.id, createdByName: req.user.name,
-    }));
+      reason: `物品遗失寻物（事件 #${issue.id}）`, createdByName: req.user.name,
+    });
     return this.detail(issue.id, req);
   }
 
@@ -181,6 +191,7 @@ export class SeatIssueController {
   @Post('seat-issues/:id/contact-parent')
   async contactParent(@Param('id') id: number, @Req() req: any, @Body() body: { note: string; reached?: boolean }) {
     const issue = await this.getOr404(id);
+    this.assertOpen(issue);
     if (!body.note?.trim()) throw new BadRequestException('请填写联系情况');
     issue.parentNotified = true;
     await this.db.seatIssues.save(issue);
@@ -192,6 +203,7 @@ export class SeatIssueController {
   @Post('seat-issues/:id/parent-reply')
   async parentReply(@Param('id') id: number, @Req() req: any, @Body() body: { content: string }) {
     const issue = await this.getOr404(id);
+    this.assertOpen(issue);
     if (req.user.role === 'parent' && issue.student.parentId !== req.user.sub) throw new ForbiddenException();
     if (!body.content?.trim()) throw new BadRequestException('回复内容不能为空');
     issue.parentReply = body.content.trim();
@@ -207,6 +219,7 @@ export class SeatIssueController {
     resolution: string; itemFound?: boolean; boostFrequency?: number;
   }) {
     const issue = await this.getOr404(id);
+    this.assertOpen(issue);
     const now = DbService.nowShanghai();
     issue.status = 'resolved';
     issue.resolvedAt = now;
@@ -218,16 +231,17 @@ export class SeatIssueController {
     const seat = await this.db.seats.findOneBy({ id: issue.seatId });
     // 1) 结案后提高该区域巡查频次（默认 20 分钟一次）
     const freq = body.boostFrequency || 20;
-    await this.db.patrolFocuses.save(this.db.patrolFocuses.create({
+    await this.addFocusOnce(issue.id, {
       date: issue.date, area: `${this.zoneLabel(seat?.zone)}座位区加强巡查`, zone: seat?.zone || '',
       roomId: issue.roomId, frequencyMinutes: freq,
-      reason: `事件 #${issue.id} 结案后加强巡查`, seatIssueId: issue.id, createdByName: req.user.name,
-    }));
+      reason: `事件 #${issue.id} 结案后加强巡查`, createdByName: req.user.name,
+    });
 
-    // 2) 物品丢失且最终未找回 / 座位事件涉及监控盲区 → 盲区整改进入场地维护预算
+    // 2) 座位事件涉及监控盲区 → 盲区整改进入场地维护预算（按事件幂等，仅生成一次）
     let maintenanceId: number | undefined;
     const blindRelated = issue.involvesBlindSpot || !seat?.monitored;
-    if (blindRelated && (issue.type === 'item_lost' || issue.type === 'seat_conflict')) {
+    const existingMaint = await this.db.maintenanceItems.findOne({ where: { seatIssueId: issue.id } });
+    if (blindRelated && (issue.type === 'item_lost' || issue.type === 'seat_conflict') && !existingMaint) {
       const item = await this.db.maintenanceItems.save(this.db.maintenanceItems.create({
         title: `监控盲区整改：${this.zoneLabel(seat?.zone)} ${seat?.code || ''} 周边补装监控`,
         area: `${this.zoneLabel(seat?.zone)}`, zone: seat?.zone || '',
@@ -236,6 +250,8 @@ export class SeatIssueController {
         seatIssueId: issue.id, proposedByName: req.user.name,
       }));
       maintenanceId = item.id;
+    } else if (existingMaint) {
+      maintenanceId = existingMaint.id;
     }
 
     await this.addAction(id, 'resolve', req,
@@ -328,6 +344,19 @@ export class SeatIssueController {
     });
     if (!issue) throw new NotFoundException('事件不存在');
     return issue;
+  }
+  private assertOpen(issue: any) {
+    if (issue.status === 'resolved') {
+      throw new ConflictException('事件已结案，不能重复处置（调座/寻物/结案等均不再生效，也不会重复生成巡查或预算）');
+    }
+  }
+  /** 同一事件同一巡查重点只生成一次（按事件+区域去重） */
+  private async addFocusOnce(issueId: number, data: any) {
+    const dup = await this.db.patrolFocuses.findOne({
+      where: { seatIssueId: issueId, area: data.area },
+    });
+    if (dup) return dup;
+    return this.db.patrolFocuses.save(this.db.patrolFocuses.create({ ...data, seatIssueId: issueId }));
   }
   private async addAction(issueId: number, type: any, req: any, detail: string) {
     await this.db.seatIssueActions.save(this.db.seatIssueActions.create({
